@@ -4,6 +4,7 @@ library(sf)
 library(spData) 
 library(tidyverse) 
 library(ggplot2)
+library(patchwork)
 
 # Load shapefile of countries
 countries <- st_read("/Users/larajoycekaser/Downloads/ne_10m_admin_0_countries_vnm/ne_10m_admin_0_countries_vnm.shx")
@@ -30,120 +31,179 @@ vtroads_2014 <- st_read("/Users/larajoycekaser/Downloads/vietnam-140101-free/gis
 
 # Load data of road network for 2024
 # https://download.geofabrik.de/asia/vietnam.html
-vtroads_2024 <- st_read("/Users/larajoycekaser/Downloads/vietnam-240101-free/gis_osm_roads_free_1.shx")
+#vtroads_2024 <- st_read("/Users/larajoycekaser/Downloads/vietnam-240101-free/gis_osm_roads_free_1.shx")
 # LINESTRING and WGS 84
+/Users/larajoycekaser/Downloads/vietnam-200101-free/gis_osm_roads_free_1.shx
+vtroads_2020 <- st_read("/Users/larajoycekaser/Downloads/vietnam-200101-free/gis_osm_roads_free_1.shx")
 
 # Clip roads to Vietnam's boundary
 vtroads_c2014 <- st_intersection(vtroads_2014, vietnam)
+st_geometry_type(vtroads_c2014) 
+st_geometry_type(vtroads_2014) 
 
 #sf_use_s2(F)
-vtroads_c2024 <- st_intersection(vtroads_2024, vietnam)
+#vtroads_c2024 <- st_intersection(vtroads_2024, vietnam)
+vtroads_c2020 <- st_intersection(vtroads_2020, vietnam)
 
 # Types of Roads in datasets 
 table(vtroads_c2014$fclass)
-table(vtroads_c2024$fclass)
+table(vtroads_c2020$fclass)
 
 # Define categories
-
-# DISCLAIMER: unsure about categories as they are not the same as in the paper, 
-# but for example dual carriageway (a category from the paper) is hard to determine with our variables?
-# at bottom of the code I have an alternative proposal of defining the categories
-
-vtroads_c2014 <- vtroads_c2014 %>%
-  mutate(road_class = case_when(
-    fclass %in% c("motorway", "motorway_link") ~ "Freeways",
-    fclass %in% c("trunk", "trunk_link") ~ "National Roads",
-    fclass %in% c("primary", "primary_link") ~ "Primary Roads",
-    fclass %in% c("secondary", "secondary_link") ~ "Secondary Roads",
-    fclass %in% c("tertiary", "residential", "living_street") ~ "Local Roads",
-    fclass %in% c("service") ~ "Service Roads",
-    fclass %in% c("cycleway", "footway", "path", "pedestrian", "steps") ~ "Non-Motorized Paths",
-    fclass %in% c("track", "track_grade1", "track_grade2", "track_grade3", "track_grade4", "track_grade5") ~ "Tracks",
-    fclass %in% c("unclassified", "unknown") ~ "Other Roads",
-    TRUE ~ "Other Roads"
-  ))
-
-vtroads_c2024 <- vtroads_c2024 %>%
-  mutate(road_class = case_when(
-    fclass %in% c("motorway", "motorway_link") ~ "Freeways",
-    fclass %in% c("trunk", "trunk_link") ~ "National Roads",
-    fclass %in% c("primary", "primary_link") ~ "Primary Roads",
-    fclass %in% c("secondary", "secondary_link") ~ "Secondary Roads",
-    fclass %in% c("tertiary", "tertiary_link", "living_street", "residential") ~ "Local Roads",
-    fclass %in% c("service") ~ "Service Roads",
-    fclass %in% c("cycleway", "footway", "path", "pedestrian", "steps") ~ "Non-Motorized Paths",
-    fclass %in% c("track", "track_grade1", "track_grade2", "track_grade3", "track_grade4", "track_grade5") ~ "Tracks",
-    fclass %in% c("unclassified", "unknown", "bridleway", "busway") ~ "Other Roads",
-    TRUE ~ "Other Roads"
-  ))
-
-# Define color palette for road categories
-road_colors <- c(
-  "Freeways" = "blue",
-  "National Roads" = "green",
-  "Primary Roads" = "red",
-  "Secondary Roads" = "orange",
-  "Local Roads" = "gray",
-  "Service Roads" = "purple",
-  "Non-Motorized Paths" = "lightblue",
-  "Tracks" = "brown",
-  "Other Roads" = "lightgray"
+# Define the road categories
+road_categories <- list(
+  Freeways = c("motorway", "motorway_link"),
+  Dual_Carriageways = c("trunk", "trunk_link"),
+  Major_Roads = c("primary", "primary_link", "secondary", "secondary_link"),
+  Minor_Roads = c("tertiary", "tertiary_link"),
+  Other_Roads = c("service", "living_street", "residential")
 )
 
-# Plot for 2014
+# Define road types to discard
+discard_roads <- c("cycleway", "footway", "path", "pedestrian", "steps",
+                   "track", "track_grade1", "track_grade2", "track_grade3", 
+                   "track_grade4", "track_grade5", "bridleway", "unknown", "unclassified")
+
+# Filter out discarded road types
+vtroads_c2014_filtered <- vtroads_c2014 %>%
+  filter(!(fclass %in% discard_roads))
+
+vtroads_c2020_filtered <- vtroads_c2020 %>%
+  filter(!(fclass %in% discard_roads))
+
+# Categorize the remaining road types
+vtroads_c2014_filtered <- vtroads_c2014_filtered %>%
+  mutate(category = case_when(
+    fclass %in% road_categories$Freeways ~ "Freeways",
+    fclass %in% road_categories$Dual_Carriageways ~ "Dual Carriageways",
+    fclass %in% road_categories$Major_Roads ~ "Major Roads",
+    fclass %in% road_categories$Minor_Roads ~ "Minor Roads",
+    fclass %in% road_categories$Other_Roads ~ "Other Roads",
+    TRUE ~ "Unknown" # Catch any unexpected road types
+  ))
+
+vtroads_c2020_filtered <- vtroads_c2020_filtered %>%
+  mutate(category = case_when(
+    fclass %in% road_categories$Freeways ~ "Freeways",
+    fclass %in% road_categories$Dual_Carriageways ~ "Dual Carriageways",
+    fclass %in% road_categories$Major_Roads ~ "Major Roads",
+    fclass %in% road_categories$Minor_Roads ~ "Minor Roads",
+    fclass %in% road_categories$Other_Roads ~ "Other Roads",
+    TRUE ~ "Unknown" # Catch any unexpected road types
+  ))
+
+vtroads_c2014_filtered <- st_cast(vtroads_c2014_filtered, "LINESTRING")
+vtroads_c2020_filtered <- st_cast(vtroads_c2020_filtered, "LINESTRING")
+
+road_colors <- c(
+  "Freeways" = "#1f77b4",           # Blue
+  "Dual Carriageways" = "#2ca02c",  # Green
+  "Major Roads" = "#d62728",        # Red
+  "Minor Roads" = "#ff7f0e",        # Orange
+  "Other Roads" = "#c7c7c7"         # Light gray
+)
+
+
 plot_2014 <- ggplot() +
+  # Base map of Vietnam
   geom_sf(data = vietnam, fill = "white", color = "black", size = 0.5) +
-  geom_sf(data = vtroads_c2014, aes(color = road_class), size = 0.4) +
-  scale_color_manual(values = road_colors) +
+  
+  # Add other categories (excluding Freeways and Dual Carriageways)
+  geom_sf(
+    data = vtroads_c2014_filtered %>% filter(!category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.4,  # Default line size
+    alpha = 0.8  # Slight transparency for less emphasis
+  ) +
+  
+  # Add Freeways and Dual Carriageways on top
+  geom_sf(
+    data = vtroads_c2014_filtered %>% filter(category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.6  # Slightly thicker lines for emphasis
+  ) +
+  
+  # Customize colors and ensure legend uses lines
+  scale_color_manual(
+    values = road_colors,
+    name = "Road Types",
+    guide = guide_legend(
+      override.aes = list(
+        linetype = "solid",  # Ensure lines appear as solid
+        size = 1.5           # Set legend line thickness
+      )
+    )
+  ) +
+  
+  # Minimalistic map styling
   theme_void() +
-  labs(title = "Road Network in Vietnam (2014)", color = "Road Types") +
+  
+  # Title and legend customization
+  labs(title = "Road map 2014") +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    legend.position = "none"
+    legend.position = c(0, 0.4),                    # Place legend on the left
+    legend.justification = c(0, 0.4),            # Position legend below the middle-left
+    legend.direction = "vertical",               # Stack legend items vertically
+    legend.title = element_text(size = 10, face = "bold"),  # Adjust legend title size
+    legend.text = element_text(size = 8),        # Adjust legend text size
+    legend.key.height = unit(0.3, "cm"),         # Adjust legend key height
+    legend.key.width = unit(1, "cm")             # Adjust legend line width
   )
 
-# Plot for 2024
-plot_2024 <- ggplot() +
+plot_2020 <- ggplot() +
+  # Base map of Vietnam
   geom_sf(data = vietnam, fill = "white", color = "black", size = 0.5) +
-  geom_sf(data = vtroads_c2024, aes(color = road_class), size = 0.4) +
-  scale_color_manual(values = road_colors) +
+  
+  # Add other categories (excluding Freeways and Dual Carriageways)
+  geom_sf(
+    data = vtroads_c2020_filtered %>% filter(!category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.4,  # Default line size
+    alpha = 0.8  # Slight transparency for less emphasis
+  ) +
+  
+  # Add Freeways and Dual Carriageways on top
+  geom_sf(
+    data = vtroads_c2020_filtered %>% filter(category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.6  # Slightly thicker lines for emphasis
+  ) +
+  
+  # Customize colors and ensure legend uses lines
+  scale_color_manual(
+    values = road_colors,
+    name = "Road Types",
+    guide = guide_legend(
+      override.aes = list(
+        linetype = "solid",  # Ensure lines appear as solid
+        size = 1.5           # Set legend line thickness
+      )
+    )
+  ) +
+  
+  # Minimalistic map styling
   theme_void() +
-  labs(title = "Road Network in Vietnam (2024)") +
+  
+  # Title and legend customization
+  labs(title = "Road map 2020") +
   theme(
     plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    legend.position = "bottom"
+    legend.position = c(-0.2, 0.4),                    # Place legend on the left
+    legend.justification = c(0, 0.4),            # Position legend below the middle-left
+    legend.direction = "vertical",               # Stack legend items vertically
+    legend.title = element_text(size = 10, face = "bold"),  # Adjust legend title size
+    legend.text = element_text(size = 8),        # Adjust legend text size
+    legend.key.height = unit(0.3, "cm"),         # Adjust legend key height
+    legend.key.width = unit(1, "cm")             # Adjust legend line width
   )
 
-# Combine plots, one legend for both 
-combined_plot <- plot_2014 + plot_2024 +
-  plot_layout(ncol = 2, guides = "collect") +
-  plot_annotation(title = "Comparison of Vietnam's Road Network (2014 vs 2024)",
-                  theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold")))
+combined_plot <- plot_2014 + plot_2020 +
+  plot_layout(ncol = 2) + 
+  plot_annotation(
+    title = "Road Maps of Vietnam, 2014 and 2020",
+    theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
+  )
 
-# Show combined plot
+# Display the combined plot
 combined_plot
-
-
-
-
-
-
-
-
-
-
-# alternative categories: 
-vtroads_c2014 <- vtroads_c2014 %>%
-  mutate(road_class = case_when(
-    fclass %in% c("motorway", "trunk", "primary") ~ "National Roads",
-    fclass %in% c("secondary") ~ "Provincial Roads",
-    fclass %in% c("tertiary", "residential", "living_street") ~ "Local Roads",
-    TRUE ~ "Other Roads"
-  ))
-vtroads_c2024 <- vtroads_c2024 %>%
-  mutate(road_class = case_when(
-    fclass %in% c("motorway", "trunk", "primary") ~ "National Roads",
-    fclass %in% c("secondary") ~ "Provincial Roads",
-    fclass %in% c("tertiary", "residential", "living_street") ~ "Local Roads",
-    TRUE ~ "Other Roads"
-  ))
