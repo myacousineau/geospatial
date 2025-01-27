@@ -1,0 +1,260 @@
+---
+title: "Q4"
+output: html_document
+date: "2025-01-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Paper 4: Road Network in Vietnam
+
+To replicate the papers third figure, we had to look for spatial data on different road types and locations in Vietnam and for a shapefile of the borders of Vietnam. 
+
+First, we load all the packages we will need for the coding work. 
+
+```{r}
+library(sf) 
+library(spData) 
+library(tidyverse) 
+library(ggplot2)
+library(patchwork)
+```
+
+# Vietnam country shape
+
+We downloaded this data from the Natural Earth database (https://www.naturalearthdata.com/http//www.naturalearthdata.com/download/10m/cultural/ne_10m_admin_0_countries_vnm.zip). 
+```{r}
+countries <- st_read("/Users/larajoycekaser/Downloads/ne_10m_admin_0_countries_vnm/ne_10m_admin_0_countries_vnm.shx")
+```
+
+It is a collection of shapefiles of multiple countries, that is why we have to filter for Vietnam, our shape of interest.
+```{r}
+vietnam <- countries %>% filter(SOVEREIGNT == "Vietnam")
+```
+Now, we check the coordinate reference sytem:
+```{r}
+st_crs(vietnam)
+```
+We see that the used CRS is WGS 84, when we import the data on roads, we have to make sure the system is the same.
+In the following, we plot the map of Vietnam to make sure, we are getting what we expect. 
+```{r}
+ggplot(data = vietnam) +
+  geom_sf(color = "black", fill = "white") +  
+  theme_void() +
+  labs(title = "Map of Vietnam") 
+```
+
+The paper shows road data for 2000 and 2010 to show how the road system in Vietnam has developed in a decade. There are multiple sources for road data, however, they did not offer the same time span as in the paper. The author of the paper explained how she got the data: "I geo-referenced each map and manually traced the location of each road category to obtain a GIS shapefile of the entire road network in each road category in 2000 and 2010, shown in Figure 3". Geo-referencing and tracking the data manually is beyond the scope of this assignment, so we tried to find a source that offers data from multiple years. https://download.geofabrik.de/asia/vietnam.html# offers road data on Vietnam from 2014 to the present. We decided to take the years 2014 (earliest possible) and 2020. We did not choose a more present one because the size of the files were too big and our hardware and R was overwhelmed with processing it. Nevertheless, we get to show an expansion of the road network in Vietnam. 
+```{r}
+vtroads_2014 <- st_read("/Users/larajoycekaser/Downloads/vietnam-140101-free/gis_osm_roads_free_1.shx")
+```
+After loading the data, we first check the CRS and geometry type:
+```{r}
+table(st_geometry_type(vtroads_2014))
+st_crs(vtroads_2014)  
+```
+We do the same for 2020:
+```{r}
+vtroads_2020 <- st_read("/Users/larajoycekaser/Downloads/vietnam-200101-free/gis_osm_roads_free_1.shx")
+```
+
+```{r}
+table(st_geometry_type(vtroads_2020)) 
+st_crs(vtroads_2020)  
+```
+Some roads go over the borders of Vietnam we use, so we have to clip them to the spatial boundary of Vietnam
+```{r}
+vtroads_c2014 <- st_intersection(vtroads_2014, vietnam)
+```
+
+```{r}
+vtroads_c2020 <- st_intersection(vtroads_2020, vietnam)
+```
+We have to make sure that the geometry type and crs did not change because of the performed intersection.
+```{r}
+table(st_geometry_type(vtroads_c2014)) 
+st_crs(vtroads_c2014) 
+table(st_geometry_type(vtroads_c2020)) 
+st_crs(vtroads_c2020) 
+```
+Return it into LINESTRING type so we can print the same legend as in the paper later on. Otherwise we would have multistrings causing the legend to be displayed in blocks.
+```{r}
+vtroads_c2014 <- st_cast(vtroads_c2014, "LINESTRING")
+vtroads_c2020 <- st_cast(vtroads_c2020, "LINESTRING")
+```
+Next, we have to examine the road types that are used in the dataset to then create similar categories as in the paper. 
+```{r}
+table(vtroads_c2014$fclass)
+table(vtroads_c2020$fclass)
+```
+In the following, we sort these into the following categories: Dual carriageway (green), Freeways (blue), Major roads (red), Minor roads (orange) and Other roads (grey). On the way we have to discard a lot of types that seem irrelevant to the papers focus such as pathway or cycleways. We also discard all unclassified roads so the maps are not getting too messy. 
+
+```{r}
+# Define the road categories
+road_categories <- list(
+  Freeways = c("motorway", "motorway_link"),
+  Dual_Carriageways = c("trunk", "trunk_link"),
+  Major_Roads = c("primary", "primary_link", "secondary", "secondary_link"),
+  Minor_Roads = c("tertiary", "tertiary_link"),
+  Other_Roads = c("service", "living_street", "residential")
+)
+
+# Define road types to discard
+discard_roads <- c("cycleway", "footway", "path", "pedestrian", "steps",
+                   "track", "track_grade1", "track_grade2", "track_grade3", 
+                   "track_grade4", "track_grade5", "bridleway", "unknown", "unclassified")
+
+# Filter out discarded road types
+vtroads_c2014_filtered <- vtroads_c2014 %>%
+  filter(!(fclass %in% discard_roads))
+
+vtroads_c2020_filtered <- vtroads_c2020 %>%
+  filter(!(fclass %in% discard_roads))
+
+# Categorize the remaining road types
+vtroads_c2014_filtered <- vtroads_c2014_filtered %>%
+  mutate(category = case_when(
+    fclass %in% road_categories$Freeways ~ "Freeways",
+    fclass %in% road_categories$Dual_Carriageways ~ "Dual Carriageways",
+    fclass %in% road_categories$Major_Roads ~ "Major Roads",
+    fclass %in% road_categories$Minor_Roads ~ "Minor Roads",
+    fclass %in% road_categories$Other_Roads ~ "Other Roads",
+    TRUE ~ "Unknown" # Catch any unexpected road types
+  ))
+
+vtroads_c2020_filtered <- vtroads_c2020_filtered %>%
+  mutate(category = case_when(
+    fclass %in% road_categories$Freeways ~ "Freeways",
+    fclass %in% road_categories$Dual_Carriageways ~ "Dual Carriageways",
+    fclass %in% road_categories$Major_Roads ~ "Major Roads",
+    fclass %in% road_categories$Minor_Roads ~ "Minor Roads",
+    fclass %in% road_categories$Other_Roads ~ "Other Roads",
+    TRUE ~ "Unknown" # Catch any unexpected road types
+  ))
+
+road_colors <- c(
+  "Freeways" = "#1f77b4",           # Blue
+  "Dual Carriageways" = "#2ca02c",  # Green
+  "Major Roads" = "#d62728",        # Red
+  "Minor Roads" = "#ff7f0e",        # Orange
+  "Other Roads" = "#c7c7c7"         # Light gray
+)
+```
+Make sure again that the geometry types and crs did not change due to this operation.
+```{r}
+table(st_geometry_type(vtroads_c2014_filtered)) 
+st_crs(vtroads_c2014_filtered) 
+table(st_geometry_type(vtroads_c2020_filtered)) 
+st_crs(vtroads_c2020_filtered) 
+```
+
+```{r}
+
+plot_2014 <- ggplot() +
+  # Base map of Vietnam
+  geom_sf(data = vietnam, fill = "white", color = "black", size = 0.5) +
+  
+  # Add other categories (excluding Freeways and Dual Carriageways)
+  geom_sf(
+    data = vtroads_c2014_filtered %>% filter(!category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.4,  # Default line size
+    alpha = 0.8  # Slight transparency for less emphasis
+  ) +
+  
+  # Add Freeways and Dual Carriageways on top
+  geom_sf(
+    data = vtroads_c2014_filtered %>% filter(category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.6  # Slightly thicker lines for emphasis
+  ) +
+  
+  # Customize colors and ensure legend uses lines
+  scale_color_manual(
+    values = road_colors,
+    name = "Road Types",
+    guide = guide_legend(
+      override.aes = list(
+        linetype = "solid",  # Ensure lines appear as solid
+        size = 1.5           # Set legend line thickness
+      )
+    )
+  ) +
+  
+  # Minimalistic map styling
+  theme_void() +
+  
+  # Title and legend customization
+  labs(title = "Road map 2014") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    legend.position = c(0, 0.4),                    # Place legend on the left
+    legend.justification = c(0, 0.4),            # Position legend below the middle-left
+    legend.direction = "vertical",               # Stack legend items vertically
+    legend.title = element_text(size = 10, face = "bold"),  # Adjust legend title size
+    legend.text = element_text(size = 8),        # Adjust legend text size
+    legend.key.height = unit(0.3, "cm"),         # Adjust legend key height
+    legend.key.width = unit(1, "cm")             # Adjust legend line width
+  )
+
+plot_2020 <- ggplot() +
+  # Base map of Vietnam
+  geom_sf(data = vietnam, fill = "white", color = "black", size = 0.5) +
+  
+  # Add other categories (excluding Freeways and Dual Carriageways)
+  geom_sf(
+    data = vtroads_c2020_filtered %>% filter(!category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.4,  # Default line size
+    alpha = 0.8  # Slight transparency for less emphasis
+  ) +
+  
+  # Add Freeways and Dual Carriageways on top
+  geom_sf(
+    data = vtroads_c2020_filtered %>% filter(category %in% c("Freeways", "Dual Carriageways")),
+    aes(color = category),
+    size = 0.6  # Slightly thicker lines for emphasis
+  ) +
+  
+  # Customize colors and ensure legend uses lines
+  scale_color_manual(
+    values = road_colors,
+    name = "Road Types",
+    guide = guide_legend(
+      override.aes = list(
+        linetype = "solid",  # Ensure lines appear as solid
+        size = 1.5           # Set legend line thickness
+      )
+    )
+  ) +
+  
+  # Minimalistic map styling
+  theme_void() +
+  
+  # Title and legend customization
+  labs(title = "Road map 2020") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    legend.position = c(-0.2, 0.4),                    # Place legend on the left
+    legend.justification = c(0, 0.4),            # Position legend below the middle-left
+    legend.direction = "vertical",               # Stack legend items vertically
+    legend.title = element_text(size = 10, face = "bold"),  # Adjust legend title size
+    legend.text = element_text(size = 8),        # Adjust legend text size
+    legend.key.height = unit(0.3, "cm"),         # Adjust legend key height
+    legend.key.width = unit(1, "cm")             # Adjust legend line width
+  )
+
+combined_plot <- plot_2014 + plot_2020 +
+  plot_layout(ncol = 2) + 
+  plot_annotation(
+    title = "Road Maps of Vietnam, 2014 and 2020",
+    theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
+  )
+```
+
+```{r}
+combined_plot
+```
+
